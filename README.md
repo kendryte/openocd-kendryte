@@ -57,7 +57,7 @@ sudo dpkg -i JLink_Linux_xxx_xxx.deb
 
 3. Download or clone the source:
 ```bash
-git clone https://github.com/kendryte/openocd-kendryte.git
+git clone --recursive https://github.com/kendryte/openocd-kendryte.git
 cd openocd-kendryte
 ```
 
@@ -91,7 +91,7 @@ sudo make install # if needed
 
 2. Download or clone the source:
 ```bash
-git clone https://github.com/kendryte/openocd-kendryte.git
+git clone --recursive https://github.com/kendryte/openocd-kendryte.git
 cd openocd-kendryte
 ```
 
