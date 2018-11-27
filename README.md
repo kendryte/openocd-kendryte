@@ -16,16 +16,20 @@ Also you can get them on Kendryte website: https://kendryte.com
 
 ## Configuration for K210
 
+There is a template configuration in `tcl/kendryte.cfg`:
 ```
+# debug adapter
 interface jlink
-#jlink serial 000504404532
+jlink serial 000504401724
 
 transport select jtag
-adapter_khz 25000
+adapter_khz 3000
 
+# server port
 gdb_port 3333
 telnet_port 4444
 
+# add cpu target
 set _CHIPNAME riscv
 
 jtag newtap $_CHIPNAME cpu -irlen 5 -expected-id 0x04e4796b
@@ -33,6 +37,7 @@ jtag newtap $_CHIPNAME cpu -irlen 5 -expected-id 0x04e4796b
 set _TARGETNAME $_CHIPNAME.cpu
 target create $_TARGETNAME riscv -chain-position $_TARGETNAME
 
+# command
 init
 halt
 ```

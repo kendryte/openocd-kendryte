@@ -226,6 +226,8 @@ typedef struct {
 	bool interrupt;
 } bits_t;
 
+static int hart_wfi[2] = {0, 0};
+
 /*** fwd ***/
 
 static int poll_target(struct target *target, bool announce);
@@ -239,7 +241,7 @@ static int execute_resume(struct target *target, bool step);
 static int riscv011_resume(struct target *target, int current,
 	target_addr_t address, int handle_breakpoints, int debug_execution);
 static int strict_step(struct target *target, bool announce);
-
+static void test(struct target *target);
 /*** Utility functions. ***/
 
 static void change_debug_info(struct target* target, int mode, int hartid)
@@ -732,8 +734,10 @@ static int wait_for_debugint_clear(struct target *target, bool ignore_first)
 		if (!bits.interrupt)
 			return ERROR_OK;
 		if (time(NULL) - start > riscv_command_timeout_sec) {
-			LOG_ERROR("Timed out waiting for debug int to clear."
-				  "Increase timeout with riscv set_command_timeout_sec.");
+			// LOG_ERROR("Timed out waiting for debug int to clear."
+			// 	  "Increase timeout with riscv set_command_timeout_sec.");
+			LOG_WARNING("Timed out waiting for debug int to clear. Hart [%d] may be in the WFI state.",
+			      riscv_current_hartid(target));
 			return ERROR_FAIL;
 		}
 	}
@@ -895,8 +899,8 @@ static int cache_write(struct target *target, unsigned int address, bool run)
 			cache_clean(target);
 
 		if (wait_for_debugint_clear(target, true) != ERROR_OK) {
-			LOG_ERROR("Debug interrupt didn't clear.");
-			dump_debug_ram(target);
+			//LOG_ERROR("Debug interrupt didn't clear.");
+			//dump_debug_ram(target);
 			return ERROR_FAIL;
 		}
 
@@ -914,8 +918,8 @@ static int cache_write(struct target *target, unsigned int address, bool run)
 				increase_interrupt_high_delay(target);
 				/* Slow path wait for it to clear. */
 				if (wait_for_debugint_clear(target, false) != ERROR_OK) {
-					LOG_ERROR("Debug interrupt didn't clear.");
-					dump_debug_ram(target);
+					//LOG_ERROR("Debug interrupt didn't clear.");
+					//dump_debug_ram(target);
 					return ERROR_FAIL;
 				}
 			} else {
@@ -1290,6 +1294,15 @@ static int set_register(struct target *target, int hartid, int regid,
 }
 
 // ----------------------------------------------------------------------------
+// wfi
+
+static int is_wfi(struct target *target)
+{
+	int hartid = riscv_current_hartid(target);
+	return hart_wfi[hartid];
+}
+
+// ----------------------------------------------------------------------------
 // select_hart
 
 static void riscv011_select_current_hart(struct target *target)
@@ -1342,22 +1355,30 @@ static int riscv011_halt_current_hart(struct target* target)
 
 static int riscv011_halt(struct target* target)
 {
+	KENDRYTE_LOG_FC();
+	test(target);
 	int another_hart = 1 - debug_info.debug_hartid;
 	riscv011_select_hart(target, another_hart);
-	if (riscv011_halt_current_hart(target) != ERROR_OK)
+	if (!is_wfi(target))
 	{
-		LOG_ERROR("halt hart %d failed.", another_hart);
-		return ERROR_FAIL;
+		if (riscv011_halt_current_hart(target) != ERROR_OK)
+		{
+			LOG_ERROR("halt hart %d failed.", another_hart);
+			return ERROR_FAIL;
+		}
+		handle_halt(target, true);
 	}
-	handle_halt(target, true);
 
 	riscv011_select_hart(target, debug_info.debug_hartid);
-	if (riscv011_halt_current_hart(target) != ERROR_OK)
+	if (!is_wfi(target))
 	{
-		LOG_ERROR("halt hart %d failed.", debug_info.debug_hartid);
-		return ERROR_FAIL;
+		if (riscv011_halt_current_hart(target) != ERROR_OK)
+		{
+			LOG_ERROR("halt hart %d failed.", debug_info.debug_hartid);
+			return ERROR_FAIL;
+		}
+		handle_halt(target, true);
 	}
-	handle_halt(target, true);
 
 	return ERROR_OK;
 }
@@ -1418,7 +1439,7 @@ static int execute_resume(struct target *target, bool step)
 
 	if (wait_for_debugint_clear(target, true) != ERROR_OK)
 	{
-		LOG_ERROR("Debug interrupt didn't clear.");
+		//LOG_ERROR("Debug interrupt didn't clear.");
 		return ERROR_FAIL;
 	}
 
@@ -1430,6 +1451,7 @@ static int execute_resume(struct target *target, bool step)
 
 static int riscv011_resume_all_hart(struct target* target, bool step)
 {
+	test(target);
 	RISCV_INFO(r);
 	for (int i = 0; i < r->hart_count; ++i)
 	{
@@ -1438,10 +1460,13 @@ static int riscv011_resume_all_hart(struct target* target, bool step)
 			if (i != debug_info.debug_hartid) continue;
 		}
 		riscv011_select_hart(target, i);
-		if (execute_resume(target, step) != ERROR_OK)
+		if (!is_wfi(target))
 		{
-			KENDRYTE_LOG_I("hart %d execute resume failed.", i);
-			return ERROR_FAIL;
+			if (execute_resume(target, step) != ERROR_OK)
+			{
+				KENDRYTE_LOG_I("hart %d execute resume failed.", i);
+				return ERROR_FAIL;
+			}
 		}
 	}
 
@@ -1505,6 +1530,41 @@ static int wakeup(struct target* target)
 	riscv011_halt_current_hart(target);
 	riscv011_select_hart(target, 0);
 	return ERROR_OK;
+}
+
+#define KENDRYTE_MIMPID 0x4d41495832303030
+#define KENDRYTE_MISA   0x800000000014112d
+
+static void test(struct target *target)
+{
+	int err = -1;
+	uint64_t mimpid = -1;
+	riscv011_select_hart(target, 0);
+	err = read_csr(target, &mimpid, CSR_MIMPID);
+	KENDRYTE_LOG_I("hart 0 mimpid = 0x%" PRIx64, mimpid);
+	if (err != ERROR_OK || mimpid != KENDRYTE_MIMPID)
+	{
+		KENDRYTE_LOG_I("%s", "hart 0 may be in wfi.");
+		hart_wfi[0] = 1;
+	}
+	else 
+	{
+		hart_wfi[0] = 0;
+	}
+
+	uint64_t misa = -1;
+	riscv011_select_hart(target, 1);
+	err = read_csr(target, &misa, CSR_MISA);
+	KENDRYTE_LOG_I("hart 1 misa = 0x%" PRIx64, misa);
+	if (err != ERROR_OK || misa != KENDRYTE_MISA)
+	{
+		KENDRYTE_LOG_I("%s", "hart 1 may be in wfi.");
+		hart_wfi[1] = 1;
+	}
+	else 
+	{
+		hart_wfi[1] = 0;
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -1611,8 +1671,9 @@ static int examine(struct target *target)
 	}
 
 	// core of Kendryte is 64-bits
-	for (int i = 0; i < r->hart_count; ++i)
+	for (int i = 0; i < r->hart_count; ++i) {
 		r->xlen[i] = 64;
+	}
 
 	for (int i = 0; i< r->hart_count; ++i) {
 		// use hart 0 to check info
@@ -2058,7 +2119,7 @@ static int assert_reset(struct target *target)
 
 	/* The only assumption we can make is that the TAP was reset. */
 	if (wait_for_debugint_clear(target, true) != ERROR_OK) {
-		LOG_ERROR("Debug interrupt didn't clear.");
+		//LOG_ERROR("Debug interrupt didn't clear.");
 		return ERROR_FAIL;
 	}
 
