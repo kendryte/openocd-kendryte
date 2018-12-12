@@ -48,18 +48,10 @@
 #ifdef PKGBLDDATE
 #define OPENOCD_VERSION	\
 	"Open On-Chip Debugger " VERSION RELSTR " (" PKGBLDDATE ")"
-
-#define DEBUGGER_VERSION \
-	" _  __              _            _     \n" \
-	"| |/ /___ _ __   __| |_ __ _   _| |_ ___  \n" \
-	"| ' // _ \\ '_ \\ / _` | '__| | | | __/ _ \\ \n" \
-	"| . \\  __/ | | | (_| | |  | |_| | ||  __/ \n" \
-	"|_|\\_\\___|_| |_|\\__,_|_|   \\__, |\\__\\___| \n" \
-	"                           |___/          \n" \
-	"Kendryte Open On-Chip Debugger For RISC-V v0.1.4 (" PKGBLDDATE ")"
 #else
 #define OPENOCD_VERSION	\
 	"Open On-Chip Debugger " VERSION RELSTR
+#endif
 
 #define DEBUGGER_VERSION \
 	" _  __              _            _     \n" \
@@ -68,8 +60,7 @@
 	"| . \\  __/ | | | (_| | |  | |_| | ||  __/ \n" \
 	"|_|\\_\\___|_| |_|\\__,_|_|   \\__, |\\__\\___| \n" \
 	"                           |___/          \n" \
-	"Kendryte Open On-Chip Debugger For RISC-V v0.1.4 (20181127)"
-#endif
+	"Kendryte Open On-Chip Debugger For RISC-V v0.1.4 (2018-12-12)"
 
 static const char openocd_startup_tcl[] = {
 #include "startup_tcl.inc"
