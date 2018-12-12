@@ -6,7 +6,8 @@ The **Kendryte OpenOCD** forks from [riscv-openocd](https://github.com/riscv/ris
 ## Kendryte Support
 
 * Stronger stability and better debugging experience
-* Support multicores debugging, you should choose specific core when openocd starts.
+* Support for multi-core debugging
+* Not guaranteed to be compatible with other chips
   
 ## Prebuild
 
@@ -62,7 +63,7 @@ sudo dpkg -i JLink_Linux_xxx_xxx.deb
 
 3. Download or clone the source:
 ```bash
-git clone --recursive https://github.com/kendryte/openocd-kendryte.git
+git clone https://github.com/kendryte/openocd-kendryte.git
 cd openocd-kendryte
 ```
 
@@ -96,7 +97,7 @@ sudo make install # if needed
 
 2. Download or clone the source:
 ```bash
-git clone --recursive https://github.com/kendryte/openocd-kendryte.git
+git clone https://github.com/kendryte/openocd-kendryte.git
 cd openocd-kendryte
 ```
 

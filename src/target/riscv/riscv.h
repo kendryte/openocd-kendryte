@@ -14,7 +14,7 @@ struct riscv_program;
 #define RISCV_MAX_TRIGGERS 32
 #define RISCV_MAX_HWBPS 16
 
-#define DEFAULT_COMMAND_TIMEOUT_SEC		2
+#define DEFAULT_COMMAND_TIMEOUT_SEC		1
 #define DEFAULT_RESET_TIMEOUT_SEC		30
 
 extern struct target_type riscv011_target;

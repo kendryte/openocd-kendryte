@@ -1,6 +1,6 @@
 #include "kendryte_debug_mode.h"
 
-debug_info_t debug_info = { 0, 0 };
+debug_info_t debug_info = { DOUBLE_HART, 0 };
 
 void set_debug_info(int mode, int hartid)
 {

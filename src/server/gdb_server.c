@@ -2810,16 +2810,12 @@ static int gdb_select_debug_mode_packet(struct connection *connection,
 
 	struct target *target = get_target_from_connection(connection);
 	if (mode == 0)
-	{	// no debug
-		target_change_debug_info(target, 0, 0);
+	{	// debug core 0
+		target_change_debug_info(target, 2, 0);
 	}
 	else if (mode == 1)
-	{	// debug 0 hart only
-		target_change_debug_info(target, 1, 0);
-	}
-	else if (mode == 2)
-	{	// debug 1 hart only
-		target_change_debug_info(target, 1, 1);
+	{	// debug core 1
+		target_change_debug_info(target, 2, 1);
 	}
 	else
 	{	// not support
@@ -2937,24 +2933,25 @@ static int gdb_input_inner(struct connection *connection)
 
 					bool nostep = false;
 					bool already_running = false;
-					if (target->state == TARGET_RUNNING) {
-						LOG_WARNING("WARNING! The target is already running. "
-								"All changes GDB did to registers will be discarded! "
-								"Waiting for target to halt.");
-						already_running = true;
-					} else if (target->state != TARGET_HALTED) {
-						LOG_WARNING("The target is not in the halted nor running stated, " \
-								"stepi/continue ignored.");
-						nostep = true;
-					} else if ((packet[0] == 's') && gdb_con->sync) {
-						/* Hmm..... when you issue a continue in GDB, then a "stepi" is
-						 * sent by GDB first to OpenOCD, thus defeating the check to
-						 * make only the single stepping have the sync feature...
-						 */
-						nostep = true;
-						LOG_WARNING("stepi ignored. GDB will now fetch the register state " \
-								"from the target.");
-					}
+                    // this will be processed in the specific function
+					//if (target->state == TARGET_RUNNING) {
+					//	LOG_WARNING("WARNING! The target is already running. "
+					//			"All changes GDB did to registers will be discarded! "
+					//			"Waiting for target to halt.");
+					//	already_running = true;
+					//} else if (target->state != TARGET_HALTED) {
+					//	LOG_WARNING("The target is not in the halted nor running stated, " \
+					//			"stepi/continue ignored.");
+					//	nostep = true;
+					//} else if ((packet[0] == 's') && gdb_con->sync) {
+					//	/* Hmm..... when you issue a continue in GDB, then a "stepi" is
+					//	 * sent by GDB first to OpenOCD, thus defeating the check to
+					//	 * make only the single stepping have the sync feature...
+					//	 */
+					//	nostep = true;
+					//	LOG_WARNING("stepi ignored. GDB will now fetch the register state " \
+					//			"from the target.");
+					//}
 					gdb_con->sync = false;
 
 					if (!already_running && nostep) {
@@ -3065,7 +3062,12 @@ static int gdb_input_inner(struct connection *connection)
 		}
 
 		if (gdb_con->ctrl_c) {
-			if (target->state == TARGET_RUNNING) {
+            // this will be processed in the specific function
+            retval = target_halt(target);
+            if (retval != ERROR_OK)
+                target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
+            gdb_con->ctrl_c = 0;
+			/*if (target->state == TARGET_RUNNING) {
 				retval = target_halt(target);
 				if (retval != ERROR_OK)
 					target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
@@ -3073,7 +3075,7 @@ static int gdb_input_inner(struct connection *connection)
 			} else {
 				LOG_INFO("The target is not running when halt was requested, stopping GDB.");
 				target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
-			}
+			}*/
 		}
 
 	} while (gdb_con->buf_cnt > 0);

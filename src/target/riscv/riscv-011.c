@@ -66,6 +66,8 @@
  * to the target. Afterwards use cache_get... to read results.
  */
 
+#define KENDRYTE_HART_COUNT 2
+
 #define get_field(reg, mask) (((reg) & (mask)) / ((mask) & ~((mask) << 1)))
 #define set_field(reg, mask, val) (((reg) & ~(mask)) | (((val) * ((mask) & ~((mask) << 1))) & (mask)))
 
@@ -160,13 +162,6 @@ typedef enum slot {
 
 #define DRAM_CACHE_SIZE		16
 
-enum debug_mode
-{
-	NOT_DEBUG = 0,
-	SINGLE_HART = 1,
-	DOUBLE_HART = 2
-};
-
 extern debug_info_t debug_info;
 
 struct trigger {
@@ -185,6 +180,9 @@ struct memory_cache_line {
 };
 
 typedef struct {
+    bool wfi[KENDRYTE_HART_COUNT];
+    unsigned int state[KENDRYTE_HART_COUNT];
+
 	/* Number of address bits in the dbus register. */
 	uint8_t addrbits;
 	/* Number of words in Debug RAM. */
@@ -226,8 +224,6 @@ typedef struct {
 	bool interrupt;
 } bits_t;
 
-static int hart_wfi[2] = {0, 0};
-
 /*** fwd ***/
 
 static int poll_target(struct target *target, bool announce);
@@ -237,7 +233,7 @@ static int get_register(struct target *target, riscv_reg_t *value, int hartid,
 static int handle_halt(struct target *target, bool announce);
 static void riscv011_select_current_hart(struct target *target);
 static void riscv011_select_hart(struct target* target, int hartid);
-static int execute_resume(struct target *target, bool step);
+static int risc011_resume_current_hart(struct target *target, bool step);
 static int riscv011_resume(struct target *target, int current,
 	target_addr_t address, int handle_breakpoints, int debug_execution);
 static int strict_step(struct target *target, bool announce);
@@ -734,10 +730,8 @@ static int wait_for_debugint_clear(struct target *target, bool ignore_first)
 		if (!bits.interrupt)
 			return ERROR_OK;
 		if (time(NULL) - start > riscv_command_timeout_sec) {
-			// LOG_ERROR("Timed out waiting for debug int to clear."
-			// 	  "Increase timeout with riscv set_command_timeout_sec.");
-			LOG_WARNING("Timed out waiting for debug int to clear. Hart [%d] may be in the WFI state.",
-			      riscv_current_hartid(target));
+			/*LOG_WARNING("Timed out waiting for debug int to clear. Hart [%d] may be in the WFI state.",
+			      riscv_current_hartid(target));*/
 			return ERROR_FAIL;
 		}
 	}
@@ -784,14 +778,6 @@ static void cache_set_store(struct target *target, unsigned int index,
 {
 	uint16_t offset = DEBUG_RAM_START + 4 * slot_offset(target, slot);
 	cache_set32(target, index, store(target, reg, ZERO, offset));
-}
-
-static void dump_debug_ram(struct target *target)
-{
-	for (unsigned int i = 0; i < DRAM_CACHE_SIZE; i++) {
-		uint32_t value = dram_read32(target, i);
-		LOG_ERROR("Debug RAM 0x%x: 0x%08x", i, value);
-	}
 }
 
 /* Call this if the code you just ran writes to debug RAM entries 0 through 3. */
@@ -899,8 +885,6 @@ static int cache_write(struct target *target, unsigned int address, bool run)
 			cache_clean(target);
 
 		if (wait_for_debugint_clear(target, true) != ERROR_OK) {
-			//LOG_ERROR("Debug interrupt didn't clear.");
-			//dump_debug_ram(target);
 			return ERROR_FAIL;
 		}
 
@@ -918,8 +902,6 @@ static int cache_write(struct target *target, unsigned int address, bool run)
 				increase_interrupt_high_delay(target);
 				/* Slow path wait for it to clear. */
 				if (wait_for_debugint_clear(target, false) != ERROR_OK) {
-					//LOG_ERROR("Debug interrupt didn't clear.");
-					//dump_debug_ram(target);
 					return ERROR_FAIL;
 				}
 			} else {
@@ -1065,7 +1047,7 @@ static int maybe_write_tselect(struct target *target)
 /* Execute a step, and wait for reentry into Debug Mode. */
 static int full_step(struct target *target, bool announce)
 {
-	int result = execute_resume(target, true);
+	int result = risc011_resume_current_hart(target, true);
 	if (result != ERROR_OK)
 		return result;
 	time_t start = time(NULL);
@@ -1296,10 +1278,10 @@ static int set_register(struct target *target, int hartid, int regid,
 // ----------------------------------------------------------------------------
 // wfi
 
-static int is_wfi(struct target *target)
+static int is_wfi(struct target *target, int hartid)
 {
-	int hartid = riscv_current_hartid(target);
-	return hart_wfi[hartid];
+    riscv011_info_t *info = get_info(target);
+    return info->wfi[hartid];
 }
 
 // ----------------------------------------------------------------------------
@@ -1358,37 +1340,47 @@ static int riscv011_halt(struct target* target)
 	KENDRYTE_LOG_FC();
 	test(target);
 	int another_hart = 1 - debug_info.debug_hartid;
-	riscv011_select_hart(target, another_hart);
-	if (!is_wfi(target))
-	{
-		if (riscv011_halt_current_hart(target) != ERROR_OK)
-		{
-			LOG_ERROR("halt hart %d failed.", another_hart);
-			return ERROR_FAIL;
-		}
-		handle_halt(target, true);
-	}
+    if (!is_wfi(target, another_hart))
+    {
+        riscv011_select_hart(target, another_hart);
+        if (riscv011_halt_current_hart(target) != ERROR_OK)
+        {
+            LOG_ERROR("halt hart %d failed.", another_hart);
+            return ERROR_FAIL;
+        }
+        handle_halt(target, true);
+    }
 
-	riscv011_select_hart(target, debug_info.debug_hartid);
-	if (!is_wfi(target))
-	{
-		if (riscv011_halt_current_hart(target) != ERROR_OK)
-		{
-			LOG_ERROR("halt hart %d failed.", debug_info.debug_hartid);
-			return ERROR_FAIL;
-		}
-		handle_halt(target, true);
-	}
+    if (!is_wfi(target, debug_info.debug_hartid))
+    {
+        riscv011_select_hart(target, debug_info.debug_hartid);
+        if (riscv011_halt_current_hart(target) != ERROR_OK)
+        {
+            LOG_ERROR("halt hart %d failed.", debug_info.debug_hartid);
+            return ERROR_FAIL;
+        }
+        handle_halt(target, true);
+    }
+
+    target->state = TARGET_HALTED;
 
 	return ERROR_OK;
 }
 
 // ----------------------------------------------------------------------------
 // resume
-static int execute_resume(struct target *target, bool step)
+static bool riscv011_is_hart_running(struct target* target, int hartid)
 {
-	KENDRYTE_LOG_FC();
+    riscv011_info_t *info = get_info(target);
+    return info->state[hartid] == TARGET_RUNNING;
+}
+
+static int risc011_resume_current_hart(struct target *target, bool step)
+{
+    RISCV_INFO(r);
 	riscv011_info_t *info = get_info(target);
+
+    KENDRYTE_LOG_D("halt current hartid = %d", r->current_hartid);
 
 	LOG_DEBUG("step=%d", step);
 
@@ -1439,11 +1431,10 @@ static int execute_resume(struct target *target, bool step)
 
 	if (wait_for_debugint_clear(target, true) != ERROR_OK)
 	{
-		//LOG_ERROR("Debug interrupt didn't clear.");
 		return ERROR_FAIL;
 	}
 
-	target->state = TARGET_RUNNING;
+    info->state[r->current_hartid] = TARGET_RUNNING;
 	register_cache_invalidate(target->reg_cache);
 
 	return ERROR_OK;
@@ -1451,18 +1442,13 @@ static int execute_resume(struct target *target, bool step)
 
 static int riscv011_resume_all_hart(struct target* target, bool step)
 {
-	test(target);
 	RISCV_INFO(r);
 	for (int i = 0; i < r->hart_count; ++i)
 	{
-		if (debug_info.debug_mode == SINGLE_HART)
+		if (!is_wfi(target, i) && !riscv011_is_hart_running(target, i))
 		{
-			if (i != debug_info.debug_hartid) continue;
-		}
-		riscv011_select_hart(target, i);
-		if (!is_wfi(target))
-		{
-			if (execute_resume(target, step) != ERROR_OK)
+            riscv011_select_hart(target, i);
+			if (risc011_resume_current_hart(target, step) != ERROR_OK)
 			{
 				KENDRYTE_LOG_I("hart %d execute resume failed.", i);
 				return ERROR_FAIL;
@@ -1535,36 +1521,40 @@ static int wakeup(struct target* target)
 #define KENDRYTE_MIMPID 0x4d41495832303030
 #define KENDRYTE_MISA   0x800000000014112d
 
+// used to test whether the core is in WFI state,
+// the correctness is still in the verification.
 static void test(struct target *target)
 {
-	int err = -1;
-	uint64_t mimpid = -1;
-	riscv011_select_hart(target, 0);
-	err = read_csr(target, &mimpid, CSR_MIMPID);
-	KENDRYTE_LOG_I("hart 0 mimpid = 0x%" PRIx64, mimpid);
-	if (err != ERROR_OK || mimpid != KENDRYTE_MIMPID)
-	{
-		KENDRYTE_LOG_I("%s", "hart 0 may be in wfi.");
-		hart_wfi[0] = 1;
-	}
-	else 
-	{
-		hart_wfi[0] = 0;
-	}
+    riscv011_info_t *info = get_info(target);
 
-	uint64_t misa = -1;
-	riscv011_select_hart(target, 1);
-	err = read_csr(target, &misa, CSR_MISA);
-	KENDRYTE_LOG_I("hart 1 misa = 0x%" PRIx64, misa);
-	if (err != ERROR_OK || misa != KENDRYTE_MISA)
-	{
-		KENDRYTE_LOG_I("%s", "hart 1 may be in wfi.");
-		hart_wfi[1] = 1;
-	}
-	else 
-	{
-		hart_wfi[1] = 0;
-	}
+    int err = -1;
+    uint64_t mimpid = -1;
+    riscv011_select_hart(target, 0);
+    err = read_csr(target, &mimpid, CSR_MIMPID);
+    KENDRYTE_LOG_I("hart 0 mimpid = 0x%" PRIx64, mimpid);
+    if (err != ERROR_OK || mimpid != KENDRYTE_MIMPID)
+    {
+        KENDRYTE_LOG_I("%s", "hart 0 may be in wfi.");
+        info->wfi[0] = true;
+    }
+    else
+    {
+        info->wfi[0] = false;
+    }
+
+    uint64_t misa = -1;
+    riscv011_select_hart(target, 1);
+    err = read_csr(target, &misa, CSR_MISA);
+    KENDRYTE_LOG_I("hart 1 misa = 0x%" PRIx64, misa);
+    if (err != ERROR_OK || misa != KENDRYTE_MISA)
+    {
+        KENDRYTE_LOG_I("%s", "hart 1 may be in wfi.");
+        info->wfi[1] = true;
+    }
+    else
+    {
+        info->wfi[1] = false;
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -1637,8 +1627,20 @@ static int examine(struct target *target)
 	}
 
 	// Kendryte chip id
-	if (idcode == 0x04e4796b)
-		r->hart_count = 2;
+    if (idcode == 0x04e4796b)
+    {
+        r->hart_count = 2;
+        for (int hartid = 0; hartid < 2; ++hartid)
+        {
+            r->xlen[hartid] = 64;
+            r->trigger_count[hartid] = 4;
+        }
+    }
+    else
+    {
+        LOG_WARNING("target is not a kendryte chip, other chips are not guaranteed to be compatible.");
+        return ERROR_FAIL;
+    }
 	LOG_DEBUG("hart count:%d", r->hart_count);
 
 	uint32_t dminfo = dbus_read(target, DMINFO);
@@ -1670,58 +1672,43 @@ static int examine(struct target *target)
 		return ERROR_FAIL;
 	}
 
-	// core of Kendryte is 64-bits
-	for (int i = 0; i < r->hart_count; ++i) {
-		r->xlen[i] = 64;
-	}
+    // read misa(Machine ISA Register)
+    if (read_csr(target, &r->misa, CSR_MISA) != ERROR_OK)
+    {
+        const unsigned old_csr_misa = 0xf10;
+        LOG_WARNING("Failed to read misa at 0x%x; trying 0x%x.", CSR_MISA,
+            old_csr_misa);
+        if (read_csr(target, &r->misa, old_csr_misa) != ERROR_OK)
+        {
+            /* Maybe this is an old core that still has $misa at the old
+            * address. */
+            LOG_ERROR("Failed to read misa at 0x%x.", old_csr_misa);
+            return ERROR_FAIL;
+        }
+    }
 
-	for (int i = 0; i< r->hart_count; ++i) {
-		// use hart 0 to check info
-		if (i != 0) continue;
-
-		riscv011_select_hart(target, i);
-		if (!riscv_is_halted(target))
-		{
-			riscv011_halt_current_hart(target);
-		}
-
-		// read misa(Machine ISA Register)
-		if (read_csr(target, &r->misa, CSR_MISA) != ERROR_OK)
-		{
-			const unsigned old_csr_misa = 0xf10;
-			LOG_WARNING("Failed to read misa at 0x%x; trying 0x%x.", CSR_MISA,
-				old_csr_misa);
-			if (read_csr(target, &r->misa, old_csr_misa) != ERROR_OK)
-			{
-				/* Maybe this is an old core that still has $misa at the old
-				* address. */
-				LOG_ERROR("Failed to read misa at 0x%x.", old_csr_misa);
-				return ERROR_FAIL;
-			}
-		}
-
-		// init reg cache
-		if (riscv_init_registers(target) != ERROR_OK)
-			return ERROR_FAIL;
-		LOG_DEBUG(" hart %d: XLEN=%d, misa=0x%" PRIx64, i, r->xlen[i], r->misa);
-	}
-
-	wakeup(target);
+    // init reg cache
+    if (riscv_init_registers(target) != ERROR_OK)
+        return ERROR_FAIL;
+    
+    wakeup(target);
 
 	int result = maybe_read_tselect(target);
 	if (result != ERROR_OK)
 		return result;
 
-	riscv_enumerate_triggers(target);
-
 	target_set_examined(target);
 
 	result = riscv011_poll(target);
 	if (result != ERROR_OK)
-		return result;
+        return result;
 
-	LOG_INFO("Examined RISCV core; found %d harts, XLEN=%d, misa=0x%" PRIx64,
-		riscv_count_harts(target), riscv_xlen(target), r->misa);
+    LOG_INFO("Examined RISCV core:");
+    LOG_INFO("  Target name: Kendryte");
+    LOG_INFO("  Target core count: %d", r->hart_count);
+    LOG_INFO("  Target trigger count: %d", r->trigger_count[0]);
+    LOG_INFO("  Target xlen: %d", r->xlen[0]);
+    LOG_INFO("  Target misa: 0x%" PRIx64, r->misa);
 
 	return ERROR_OK;
 }
@@ -2060,19 +2047,24 @@ static int handle_halt(struct target *target, bool announce)
 	 * still so if a user manually inspects the pc it will still have the old
 	 * value. */
 	RISCV_INFO(r);
-	if (debug_info.debug_mode == SINGLE_HART && debug_info.debug_hartid != r->current_hartid)
-	{
-		target->state = TARGET_HALTED;
-		return ERROR_OK;
-	}
-	LOG_USER("[%d] halted at 0x%" PRIx64 " due to %s", r->current_hartid, info->dpc, cause_string[cause]);
+	
+	LOG_USER("Core [%d] halted at 0x%" PRIx64 " due to %s", r->current_hartid, info->dpc, cause_string[cause]);
 
-	target->state = TARGET_HALTED;
+    info->state[r->current_hartid] = TARGET_HALTED;
 	return ERROR_OK;
 }
 
 static int poll_target(struct target *target, bool announce)
 {
+    RISCV_INFO(r);
+    riscv011_info_t *info = get_info(target);
+
+    if (is_wfi(target, r->current_hartid))
+    {
+        info->state[r->current_hartid] = TARGET_HALTED;
+        goto next;
+    }
+
 	jtag_add_ir_scan(target->tap, &select_dbus, TAP_IDLE);
 
 	/* Inhibit debug logging during poll(), which isn't usually interesting and
@@ -2081,26 +2073,36 @@ static int poll_target(struct target *target, bool announce)
 	if (debug_level >= LOG_LVL_DEBUG)
 		debug_level = LOG_LVL_INFO;
 
-	RISCV_INFO(r);
 	bits_t bits = read_bits(target);
 	debug_level = old_debug_level;
 
+    // KENDRYTE_LOG_D("hart [%d] state: %d", r->current_hartid, info->state[r->current_hartid]);
 	if (bits.haltnot && bits.interrupt) {
-		KENDRYTE_LOG_I("hartid:%d, haltnot = %d, interrupt = %d, DEBUG RUNNING", r->current_hartid, (int)bits.haltnot, (int)bits.interrupt);
-		target->state = TARGET_DEBUG_RUNNING;
+        info->state[r->current_hartid] = TARGET_DEBUG_RUNNING;
 		LOG_DEBUG("debug running");
 	} else if (bits.haltnot && !bits.interrupt) {
-		KENDRYTE_LOG_I("hartid:%d, haltnot = %d, interrupt = %d, HANDLE_HALT", r->current_hartid, (int)bits.haltnot, (int)bits.interrupt);
-		if (target->state != TARGET_HALTED)
-			return handle_halt(target, announce);
+		if (info->state[r->current_hartid] != TARGET_HALTED)
+			handle_halt(target, announce);
 	} else if (!bits.haltnot && bits.interrupt) {
-		KENDRYTE_LOG_I("hartid:%d, haltnot = %d, interrupt = %d, HALTING", r->current_hartid, (int)bits.haltnot, (int)bits.interrupt);
 		/* Target is halting. There is no state for that, so don't change anything. */
 		LOG_DEBUG("halting");
 	} else if (!bits.haltnot && !bits.interrupt) {
-		KENDRYTE_LOG_I("hartid:%d, haltnot = %d, interrupt = %d, RUNNING", r->current_hartid, (int)bits.haltnot, (int)bits.interrupt);
-		target->state = TARGET_RUNNING;
+        info->state[r->current_hartid] = TARGET_RUNNING;
 	}
+
+next:
+    if (info->state[0] == TARGET_RUNNING && info->state[1] == TARGET_RUNNING)
+    {
+        target->state = TARGET_RUNNING;
+    }
+    else if (info->state[0] == TARGET_DEBUG_RUNNING && info->state[1] == TARGET_DEBUG_RUNNING)
+    {
+        target->state = TARGET_DEBUG_RUNNING;
+    }
+    else
+    {
+        target->state = TARGET_HALTED;
+    }
 
 	return ERROR_OK;
 }
@@ -2119,7 +2121,6 @@ static int assert_reset(struct target *target)
 
 	/* The only assumption we can make is that the TAP was reset. */
 	if (wait_for_debugint_clear(target, true) != ERROR_OK) {
-		//LOG_ERROR("Debug interrupt didn't clear.");
 		return ERROR_FAIL;
 	}
 
