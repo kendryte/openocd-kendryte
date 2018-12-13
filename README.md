@@ -17,7 +17,7 @@ Also you can get them on Kendryte website: https://kendryte.com
 
 ## Configuration for K210
 
-There is a template configuration in `tcl/kendryte.cfg`, this is a configuration for JLink, if you are using other JTAG devices, please modify it yourself.
+We have provided a template configuration for JLink in `tcl/kendryte.cfg`, if you are using other JTAG devices, please modify it yourself.
 
 ## Build from source
 
