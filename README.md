@@ -17,31 +17,7 @@ Also you can get them on Kendryte website: https://kendryte.com
 
 ## Configuration for K210
 
-There is a template configuration in `tcl/kendryte.cfg`:
-```
-# debug adapter
-interface jlink
-jlink serial 000504401724
-
-transport select jtag
-adapter_khz 3000
-
-# server port
-gdb_port 3333
-telnet_port 4444
-
-# add cpu target
-set _CHIPNAME riscv
-
-jtag newtap $_CHIPNAME cpu -irlen 5 -expected-id 0x04e4796b
-
-set _TARGETNAME $_CHIPNAME.cpu
-target create $_TARGETNAME riscv -chain-position $_TARGETNAME
-
-# command
-init
-halt
-```
+There is a template configuration in `tcl/kendryte.cfg`, this is a configuration for JLink, if you are using other JTAG devices, please modify it yourself.
 
 ## Build from source
 
@@ -112,5 +88,5 @@ make
 
 5. Download the latest [libusb releases](https://sourceforge.net/projects/libusb/), and copy `MinGW32\dll\libusb-1.0.dll` to the directory of `openocd.exe`.
 
-6. Download [Zadig](http://zadig.akeo.ie/) and convert the vendor drivers to WinUSB drivers for your JTAG.
+6. Download [Zadig](http://zadig.akeo.ie/) and convert the vendor drivers to WinUSB drivers for your JTAG device.
 
