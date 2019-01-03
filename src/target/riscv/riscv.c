@@ -738,7 +738,6 @@ static int old_or_new_riscv_resume(
 
 static void riscv_select_current_hart(struct target *target)
 {
-    LOG_INFO("riscv select current hart");
 	RISCV_INFO(r);
 	if (r->rtos_hartid != -1 && riscv_rtos_enabled(target))
 		riscv_set_current_hartid(target, r->rtos_hartid);
@@ -767,7 +766,7 @@ static int riscv_get_gdb_reg_list(struct target *target,
 		enum target_register_class reg_class)
 {
 	RISCV_INFO(r);
-	LOG_INFO("hartid:%d, type:%s", r->current_hartid, reg_class == REG_CLASS_GENERAL ? "general" : "all");
+	//LOG_INFO("hartid:%d, type:%s", r->current_hartid, reg_class == REG_CLASS_GENERAL ? "general" : "all");
 
 	/*if (!r->is_halted(target))
 	{
@@ -1515,10 +1514,6 @@ void riscv_set_current_hartid(struct target *target, int hartid)
 		return;
 
 	/* Avoid invalidating the register cache all the time. */
-	if (!r->registers_initialized) LOG_INFO("!!! registers_initialized = false");
-	if (!(!riscv_rtos_enabled(target) || (previous_hartid == hartid))) LOG_INFO("!!! rtos_enabled = %s, previous_hartid = %d, hartid = %d", riscv_rtos_enabled(target) ? "true" : "false", previous_hartid, hartid);
-	if (target->reg_cache->reg_list[GDB_REGNO_ZERO].size != (unsigned)riscv_xlen(target)) LOG_INFO("!!! reg.size != riscv_xlen");
-	if (!(!riscv_rtos_enabled(target) || (r->rtos_hartid != -1))) LOG_INFO("!!! rtos_enabled = %s, rtos_hartid = %d", riscv_rtos_enabled(target) ? "true" : "false", r->rtos_hartid);
 	if (r->registers_initialized
 			&& (!riscv_rtos_enabled(target) || (previous_hartid == hartid))
 			&& target->reg_cache->reg_list[GDB_REGNO_ZERO].size == (unsigned)riscv_xlen(target)
@@ -1585,7 +1580,7 @@ int riscv_set_register_on_hart(struct target *target, int hartid,
 		enum gdb_regno regid, uint64_t value)
 {
 	RISCV_INFO(r);
-	LOG_INFO("[%d] %s <- %" PRIx64, hartid, gdb_regno_name(regid), value);
+	//LOG_INFO("[%d] %s <- %" PRIx64, hartid, gdb_regno_name(regid), value);
 	assert(r->set_register);
 	return r->set_register(target, hartid, regid, value);
 }
@@ -1602,7 +1597,7 @@ int riscv_get_register_on_hart(struct target *target, riscv_reg_t *value,
 {
 	RISCV_INFO(r);
 	int result = r->get_register(target, value, hartid, regid);
-	LOG_INFO("[%d] %s: %" PRIx64, hartid, gdb_regno_name(regid), *value);
+	//LOG_INFO("[%d] %s: %" PRIx64, hartid, gdb_regno_name(regid), *value);
 	return result;
 }
 

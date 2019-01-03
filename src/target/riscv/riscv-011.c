@@ -1098,7 +1098,7 @@ static int update_mstatus_actual(struct target *target)
 	/* Force reading the register. In that process mstatus_actual will be
 	 * updated. */
 	riscv_reg_t mstatus;
-	return get_register(target, &mstatus, 0, GDB_REGNO_MSTATUS);
+	return get_register(target, &mstatus, riscv_current_hartid(target), GDB_REGNO_MSTATUS);
 }
 
 /*** OpenOCD target functions. ***/
@@ -1205,8 +1205,7 @@ static int register_write(struct target *target, unsigned int number,
 static int get_register(struct target *target, riscv_reg_t *value, int hartid,
 		int regid)
 {
-    LOG_INFO("Core [%d] get register:%s", hartid, gdb_regno_name(regid));
-	RISCV_INFO(r);
+    KENDRYTE_LOG_D("Core [%d] get register:%s", hartid, gdb_regno_name(regid));
 	riscv011_info_t *info = get_info(target);
 
     riscv011_select_hart(target, hartid);
@@ -1267,7 +1266,7 @@ static int get_register(struct target *target, riscv_reg_t *value, int hartid,
 static int set_register(struct target *target, int hartid, int regid,
 		uint64_t value)
 {
-	RISCV_INFO(r);
+	KENDRYTE_LOG_D("Core [%d] set register %s to 0x%" PRIx64, hartid, gdb_regno_name(regid), value);
     riscv011_select_hart(target, hartid);
 
 	return register_write(target, regid, value);
@@ -1311,7 +1310,6 @@ static void riscv011_select_hart(struct target* target, int hartid)
 static bool riscv011_is_halted(struct target* target)
 {
     riscv011_info_t *info = get_info(target);
-    LOG_INFO("%d, %d", info->state[0], info->state[1]);
     return info->state[0] == TARGET_HALTED || info->state[1] == TARGET_HALTED;
 }
 
