@@ -766,7 +766,7 @@ static int riscv_get_gdb_reg_list(struct target *target,
 		enum target_register_class reg_class)
 {
 	RISCV_INFO(r);
-	//LOG_INFO("hartid:%d, type:%s", r->current_hartid, reg_class == REG_CLASS_GENERAL ? "general" : "all");
+	KENDRYTE_LOG_D("hartid:%d, type:%s", r->current_hartid, reg_class == REG_CLASS_GENERAL ? "general" : "all");
 
 	/*if (!r->is_halted(target))
 	{

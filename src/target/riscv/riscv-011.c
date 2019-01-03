@@ -1172,6 +1172,9 @@ static int register_write(struct target *target, unsigned int number,
 			cache_set32(target, i++, flw(number - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
 		else
 			cache_set32(target, i++, fld(number - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
+
+		cache_set32(target, i++, sw(S0, ZERO, DEBUG_RAM_START + 16));
+        cache_set_store(target, i++, S0, SLOT0);
 		cache_set_jump(target, i++);
 	} else if (number >= GDB_REGNO_CSR0 && number <= GDB_REGNO_CSR4095) {
 		cache_set_load(target, 0, S0, SLOT0);
