@@ -1444,7 +1444,6 @@ static int risc011_resume_current_hart(struct target *target, bool step)
 
 static int riscv011_resume_all_hart(struct target* target, bool step)
 {
-	RISCV_INFO(r);
 	int another_hart = 1 - debug_info.debug_hartid;
 
 	if (!is_wfi(target, another_hart) && !riscv011_is_hart_running(target, another_hart))
