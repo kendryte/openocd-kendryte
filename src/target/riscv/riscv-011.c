@@ -1098,7 +1098,7 @@ static int update_mstatus_actual(struct target *target)
 	/* Force reading the register. In that process mstatus_actual will be
 	 * updated. */
 	riscv_reg_t mstatus;
-	return get_register(target, &mstatus, 0, GDB_REGNO_MSTATUS);
+	return get_register(target, &mstatus, riscv_current_hartid(target), GDB_REGNO_MSTATUS);
 }
 
 /*** OpenOCD target functions. ***/
@@ -1172,6 +1172,9 @@ static int register_write(struct target *target, unsigned int number,
 			cache_set32(target, i++, flw(number - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
 		else
 			cache_set32(target, i++, fld(number - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
+
+		cache_set32(target, i++, sw(S0, ZERO, DEBUG_RAM_START + 16));
+		cache_set_store(target, i++, S0, SLOT0);
 		cache_set_jump(target, i++);
 	} else if (number >= GDB_REGNO_CSR0 && number <= GDB_REGNO_CSR4095) {
 		cache_set_load(target, 0, S0, SLOT0);
@@ -1205,18 +1208,10 @@ static int register_write(struct target *target, unsigned int number,
 static int get_register(struct target *target, riscv_reg_t *value, int hartid,
 		int regid)
 {
-	RISCV_INFO(r);
-	assert(hartid >= 0 && hartid <= r->hart_count);
-	static int lasthartid = 0;
-	if(lasthartid != hartid) {
-		uint64_t dmcontrol = dbus_read(target, DMCONTROL);
-		dmcontrol = set_field(dmcontrol, DMCONTROL_HARTID, hartid);
-		dbus_write(target, DMCONTROL, dmcontrol);
-		lasthartid = hartid;
-	}
-	riscv_set_current_hartid(target, hartid);
-
+    KENDRYTE_LOG_D("Core [%d] get register:%s", hartid, gdb_regno_name(regid));
 	riscv011_info_t *info = get_info(target);
+
+    riscv011_select_hart(target, hartid);
 
 	maybe_write_tselect(target);
 
@@ -1240,16 +1235,29 @@ static int get_register(struct target *target, riscv_reg_t *value, int hartid,
 			cache_set32(target, i++, fsw(regid - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
 		else
 			cache_set32(target, i++, fsd(regid - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
+
+        cache_set32(target, i++, lw(S0, ZERO, DEBUG_RAM_START + 16));
+        cache_set_store(target, i++, S0, SLOT0);
 		cache_set_jump(target, i++);
 
-		if (cache_write(target, 4, true) != ERROR_OK)
-			return ERROR_FAIL;
+        if (cache_write(target, i, true) != ERROR_OK)
+        {
+            *value = ~0;
+            LOG_WARNING("Got error when reading %s", gdb_regno_name(regid));
+            return ERROR_FAIL;
+        }
+		
+        *value = cache_get(target, SLOT0);
 	} else if (regid == GDB_REGNO_PRIV) {
 		*value = get_field(info->dcsr, DCSR_PRV);
 	} else {
 		int result = register_read(target, value, regid);
-		if (result != ERROR_OK)
-			return result;
+        if (result != ERROR_OK)
+        {
+            LOG_WARNING("Got error when reading %s", gdb_regno_name(regid));
+            return result;
+        }
+			
 	}
 
 	if (regid == GDB_REGNO_MSTATUS)
@@ -1261,16 +1269,8 @@ static int get_register(struct target *target, riscv_reg_t *value, int hartid,
 static int set_register(struct target *target, int hartid, int regid,
 		uint64_t value)
 {
-	RISCV_INFO(r);
-	assert(hartid >= 0 && hartid <= r->hart_count);
-	static int lasthartid = 0;
-	if(lasthartid != hartid) {
-		uint64_t dmcontrol = dbus_read(target, DMCONTROL);
-		dmcontrol = set_field(dmcontrol, DMCONTROL_HARTID, hartid);
-		dbus_write(target, DMCONTROL, dmcontrol);
-		lasthartid = hartid;
-	}
-	riscv_set_current_hartid(target, hartid);
+	KENDRYTE_LOG_D("Core [%d] set register %s to 0x%" PRIx64, hartid, gdb_regno_name(regid), value);
+    riscv011_select_hart(target, hartid);
 
 	return register_write(target, regid, value);
 }
@@ -1312,7 +1312,8 @@ static void riscv011_select_hart(struct target* target, int hartid)
 
 static bool riscv011_is_halted(struct target* target)
 {
-	return target->state == TARGET_HALTED;
+    riscv011_info_t *info = get_info(target);
+    return info->state[0] == TARGET_HALTED || info->state[1] == TARGET_HALTED;
 }
 
 static int riscv011_halt_current_hart(struct target* target)
@@ -1340,12 +1341,13 @@ static int riscv011_halt(struct target* target)
 	KENDRYTE_LOG_FC();
 	test(target);
 	int another_hart = 1 - debug_info.debug_hartid;
+
     if (!is_wfi(target, another_hart))
     {
         riscv011_select_hart(target, another_hart);
         if (riscv011_halt_current_hart(target) != ERROR_OK)
         {
-            LOG_ERROR("halt hart %d failed.", another_hart);
+            LOG_ERROR("hart %d halt failed.", another_hart);
             return ERROR_FAIL;
         }
         handle_halt(target, true);
@@ -1356,7 +1358,7 @@ static int riscv011_halt(struct target* target)
         riscv011_select_hart(target, debug_info.debug_hartid);
         if (riscv011_halt_current_hart(target) != ERROR_OK)
         {
-            LOG_ERROR("halt hart %d failed.", debug_info.debug_hartid);
+            LOG_ERROR("hart %d halt failed.", debug_info.debug_hartid);
             return ERROR_FAIL;
         }
         handle_halt(target, true);
@@ -1380,7 +1382,7 @@ static int risc011_resume_current_hart(struct target *target, bool step)
     RISCV_INFO(r);
 	riscv011_info_t *info = get_info(target);
 
-    KENDRYTE_LOG_D("halt current hartid = %d", r->current_hartid);
+    KENDRYTE_LOG_D("resume current hartid = %d", r->current_hartid);
 
 	LOG_DEBUG("step=%d", step);
 
@@ -1442,17 +1444,25 @@ static int risc011_resume_current_hart(struct target *target, bool step)
 
 static int riscv011_resume_all_hart(struct target* target, bool step)
 {
-	RISCV_INFO(r);
-	for (int i = 0; i < r->hart_count; ++i)
+	int another_hart = 1 - debug_info.debug_hartid;
+
+	if (!is_wfi(target, another_hart) && !riscv011_is_hart_running(target, another_hart))
 	{
-		if (!is_wfi(target, i) && !riscv011_is_hart_running(target, i))
+        riscv011_select_hart(target, another_hart);
+		if (risc011_resume_current_hart(target, step) != ERROR_OK)
 		{
-            riscv011_select_hart(target, i);
-			if (risc011_resume_current_hart(target, step) != ERROR_OK)
-			{
-				KENDRYTE_LOG_I("hart %d execute resume failed.", i);
-				return ERROR_FAIL;
-			}
+			KENDRYTE_LOG_I("hart %d resume failed.", another_hart);
+			return ERROR_FAIL;
+		}
+	}
+
+	if (!is_wfi(target, debug_info.debug_hartid) && !riscv011_is_hart_running(target, debug_info.debug_hartid))
+	{
+        riscv011_select_hart(target, debug_info.debug_hartid);
+		if (risc011_resume_current_hart(target, step) != ERROR_OK)
+		{
+			KENDRYTE_LOG_I("hart %d resume failed.", debug_info.debug_hartid);
+			return ERROR_FAIL;
 		}
 	}
 
@@ -2076,7 +2086,7 @@ static int poll_target(struct target *target, bool announce)
 	bits_t bits = read_bits(target);
 	debug_level = old_debug_level;
 
-    // KENDRYTE_LOG_D("hart [%d] state: %d", r->current_hartid, info->state[r->current_hartid]);
+    //LOG_INFO("hart [%d] state: %d", r->current_hartid, info->state[r->current_hartid]);
 	if (bits.haltnot && bits.interrupt) {
         info->state[r->current_hartid] = TARGET_DEBUG_RUNNING;
 		LOG_DEBUG("debug running");

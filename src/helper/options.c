@@ -332,8 +332,8 @@ int parse_cmdline_args(struct command_context *cmd_ctx, int argc, char *argv[])
 		LOG_OUTPUT("--version    | -v\tdisplay OpenOCD version\n");
 		LOG_OUTPUT("--file       | -f\tuse configuration file <name>\n");
 		LOG_OUTPUT("--mode       | -m\tset debug core <coreid>\n");
-		LOG_OUTPUT("                0: debug core 0 after the user stops the core\n");
-		LOG_OUTPUT("                1: debug core 1 after the user stops the core\n");
+		LOG_OUTPUT("               -m0\tdebug core 0\n");
+		LOG_OUTPUT("               -m1\tdebug core 1\n");
 		LOG_OUTPUT("--search     | -s\tdir to search for config files and scripts\n");
 		LOG_OUTPUT("--debug      | -d\tset debug level to 3\n");
 		LOG_OUTPUT("             | -d<n>\tset debug level to <level>\n");
