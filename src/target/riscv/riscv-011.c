@@ -1174,7 +1174,7 @@ static int register_write(struct target *target, unsigned int number,
 			cache_set32(target, i++, fld(number - GDB_REGNO_FPR0, 0, DEBUG_RAM_START + 16));
 
 		cache_set32(target, i++, sw(S0, ZERO, DEBUG_RAM_START + 16));
-        cache_set_store(target, i++, S0, SLOT0);
+		cache_set_store(target, i++, S0, SLOT0);
 		cache_set_jump(target, i++);
 	} else if (number >= GDB_REGNO_CSR0 && number <= GDB_REGNO_CSR4095) {
 		cache_set_load(target, 0, S0, SLOT0);
@@ -1341,12 +1341,13 @@ static int riscv011_halt(struct target* target)
 	KENDRYTE_LOG_FC();
 	test(target);
 	int another_hart = 1 - debug_info.debug_hartid;
+
     if (!is_wfi(target, another_hart))
     {
         riscv011_select_hart(target, another_hart);
         if (riscv011_halt_current_hart(target) != ERROR_OK)
         {
-            LOG_ERROR("halt hart %d failed.", another_hart);
+            LOG_ERROR("hart %d halt failed.", another_hart);
             return ERROR_FAIL;
         }
         handle_halt(target, true);
@@ -1357,7 +1358,7 @@ static int riscv011_halt(struct target* target)
         riscv011_select_hart(target, debug_info.debug_hartid);
         if (riscv011_halt_current_hart(target) != ERROR_OK)
         {
-            LOG_ERROR("halt hart %d failed.", debug_info.debug_hartid);
+            LOG_ERROR("hart %d halt failed.", debug_info.debug_hartid);
             return ERROR_FAIL;
         }
         handle_halt(target, true);
@@ -1381,7 +1382,7 @@ static int risc011_resume_current_hart(struct target *target, bool step)
     RISCV_INFO(r);
 	riscv011_info_t *info = get_info(target);
 
-    KENDRYTE_LOG_D("halt current hartid = %d", r->current_hartid);
+    KENDRYTE_LOG_D("resume current hartid = %d", r->current_hartid);
 
 	LOG_DEBUG("step=%d", step);
 
@@ -1444,16 +1445,25 @@ static int risc011_resume_current_hart(struct target *target, bool step)
 static int riscv011_resume_all_hart(struct target* target, bool step)
 {
 	RISCV_INFO(r);
-	for (int i = 0; i < r->hart_count; ++i)
+	int another_hart = 1 - debug_info.debug_hartid;
+
+	if (!is_wfi(target, another_hart) && !riscv011_is_hart_running(target, another_hart))
 	{
-		if (!is_wfi(target, i) && !riscv011_is_hart_running(target, i))
+        riscv011_select_hart(target, another_hart);
+		if (risc011_resume_current_hart(target, step) != ERROR_OK)
 		{
-            riscv011_select_hart(target, i);
-			if (risc011_resume_current_hart(target, step) != ERROR_OK)
-			{
-				KENDRYTE_LOG_I("hart %d execute resume failed.", i);
-				return ERROR_FAIL;
-			}
+			KENDRYTE_LOG_I("hart %d resume failed.", another_hart);
+			return ERROR_FAIL;
+		}
+	}
+
+	if (!is_wfi(target, debug_info.debug_hartid) && !riscv011_is_hart_running(target, debug_info.debug_hartid))
+	{
+        riscv011_select_hart(target, debug_info.debug_hartid);
+		if (risc011_resume_current_hart(target, step) != ERROR_OK)
+		{
+			KENDRYTE_LOG_I("hart %d resume failed.", debug_info.debug_hartid);
+			return ERROR_FAIL;
 		}
 	}
 
