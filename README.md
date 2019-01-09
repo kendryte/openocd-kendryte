@@ -25,3 +25,4 @@ For Linux please see: [Build on Linux](doc/build_on_linux.md)
 
 For Windows please see: [Build on Windows](doc/build_on_windows.md)
 
+For OSX please see: [Build on OSX](doc/build_on_osx.md)
