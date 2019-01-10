@@ -1713,12 +1713,7 @@ static int examine(struct target *target)
 	if (result != ERROR_OK)
         return result;
 
-    LOG_INFO("Examined RISCV core:");
-    LOG_INFO("  Target name: Kendryte");
-    LOG_INFO("  Target core count: %d", r->hart_count);
-    LOG_INFO("  Target trigger count: %d", r->trigger_count[0]);
-    LOG_INFO("  Target xlen: %d", r->xlen[0]);
-    LOG_INFO("  Target misa: 0x%" PRIx64, r->misa);
+    LOG_INFO("Examined RISCV core; found %d harts", r->hart_count);
 
 	return ERROR_OK;
 }
