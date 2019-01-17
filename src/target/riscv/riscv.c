@@ -736,19 +736,23 @@ static int old_or_new_riscv_resume(
 		return riscv_openocd_resume(target, current, address, handle_breakpoints, debug_execution);
 }
 
-static void riscv_select_current_hart(struct target *target)
+static int riscv_read_buffer(struct target *target, target_addr_t address,
+		uint32_t size, uint8_t *buffer)
 {
-	RISCV_INFO(r);
-	if (r->rtos_hartid != -1 && riscv_rtos_enabled(target))
-		riscv_set_current_hartid(target, r->rtos_hartid);
-	else
-		riscv_set_current_hartid(target, target->coreid);
+	struct target_type *tt = get_target_type(target);
+	return tt->read_memory(target, address, 4, size / 4 , buffer);
+}
+
+static int riscv_write_buffer(struct target *target, target_addr_t address,
+		uint32_t size, const uint8_t *buffer)
+{
+	struct target_type *tt = get_target_type(target);
+	return tt->write_memory(target, address, 4, size / 4, buffer);
 }
 
 static int riscv_read_memory(struct target *target, target_addr_t address,
 		uint32_t size, uint32_t count, uint8_t *buffer)
 {
-	//riscv_select_current_hart(target);
 	struct target_type *tt = get_target_type(target);
 	return tt->read_memory(target, address, size, count, buffer);
 }
@@ -756,7 +760,6 @@ static int riscv_read_memory(struct target *target, target_addr_t address,
 static int riscv_write_memory(struct target *target, target_addr_t address,
 		uint32_t size, uint32_t count, const uint8_t *buffer)
 {
-	//riscv_select_current_hart(target);
 	struct target_type *tt = get_target_type(target);
 	return tt->write_memory(target, address, size, count, buffer);
 }
@@ -768,11 +771,10 @@ static int riscv_get_gdb_reg_list(struct target *target,
 	RISCV_INFO(r);
 	KENDRYTE_LOG_D("hartid:%d, type:%s", r->current_hartid, reg_class == REG_CLASS_GENERAL ? "general" : "all");
 
-	/*if (!r->is_halted(target))
+	if (!r->is_halted(target))
 	{
-        LOG_INFO("target is not halted, halt all hart");
 		r->halt_all_hart(target);
-	}*/
+	}
 
 	LOG_DEBUG("reg_class=%d", reg_class);
 	LOG_DEBUG("rtos_hartid=%d current_hartid=%d", r->rtos_hartid, r->current_hartid);
@@ -1139,6 +1141,7 @@ int riscv_openocd_step(
 	return out;
 }
 
+
 /* Command Handlers */
 COMMAND_HANDLER(riscv_set_command_timeout_sec)
 {
@@ -1342,6 +1345,9 @@ struct target_type riscv_target = {
 
 	.assert_reset = riscv_assert_reset,
 	.deassert_reset = riscv_deassert_reset,
+
+	.read_buffer = riscv_read_buffer,
+	.write_buffer = riscv_write_buffer,
 
 	.read_memory = riscv_read_memory,
 	.write_memory = riscv_write_memory,
@@ -1580,7 +1586,7 @@ int riscv_set_register_on_hart(struct target *target, int hartid,
 		enum gdb_regno regid, uint64_t value)
 {
 	RISCV_INFO(r);
-	//LOG_INFO("[%d] %s <- %" PRIx64, hartid, gdb_regno_name(regid), value);
+	LOG_DEBUG("[%d] %s <- %" PRIx64, hartid, gdb_regno_name(regid), value);
 	assert(r->set_register);
 	return r->set_register(target, hartid, regid, value);
 }
@@ -1597,7 +1603,7 @@ int riscv_get_register_on_hart(struct target *target, riscv_reg_t *value,
 {
 	RISCV_INFO(r);
 	int result = r->get_register(target, value, hartid, regid);
-	//LOG_INFO("[%d] %s: %" PRIx64, hartid, gdb_regno_name(regid), *value);
+	LOG_DEBUG("[%d] %s: %" PRIx64, hartid, gdb_regno_name(regid), *value);
 	return result;
 }
 
