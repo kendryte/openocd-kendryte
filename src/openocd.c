@@ -60,7 +60,7 @@
 	"| . \\  __/ | | | (_| | |  | |_| | ||  __/ \n" \
 	"|_|\\_\\___|_| |_|\\__,_|_|   \\__, |\\__\\___| \n" \
 	"                           |___/          \n" \
-	"Kendryte Open On-Chip Debugger For RISC-V v0.2.1 (2019-01-09)"
+	"Kendryte Open On-Chip Debugger For RISC-V v0.2.2 (2019-01-17)"
 
 static const char openocd_startup_tcl[] = {
 #include "startup_tcl.inc"
