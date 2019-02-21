@@ -740,14 +740,14 @@ static int riscv_read_buffer(struct target *target, target_addr_t address,
 		uint32_t size, uint8_t *buffer)
 {
 	struct target_type *tt = get_target_type(target);
-	return tt->read_memory(target, address, 4, size / 4 , buffer);
+	return tt->read_memory(target, address, 1, size, buffer);
 }
 
 static int riscv_write_buffer(struct target *target, target_addr_t address,
 		uint32_t size, const uint8_t *buffer)
 {
 	struct target_type *tt = get_target_type(target);
-	return tt->write_memory(target, address, 4, size / 4, buffer);
+	return tt->write_memory(target, address, 1, size, buffer);
 }
 
 static int riscv_read_memory(struct target *target, target_addr_t address,

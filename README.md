@@ -15,14 +15,6 @@ Prebuild can be downloaded at [github releases](https://github.com/kendryte/open
 
 Also you can get them on Kendryte website: https://kendryte.com
 
-## Configuration for K210
+## Document
 
-We have provided a template configuration for J-Link in `tcl/kendryte.cfg`, if you are using other JTAG emulators, please modify it yourself.
-
-## Compiling and build
-
-For Linux please see: [Build on Linux](doc/build_on_linux.md)
-
-For Windows please see: [Build on Windows](doc/build_on_windows.md)
-
-For OSX please see: [Build on OSX](doc/build_on_osx.md)
+[Wiki](https://github.com/kendryte/openocd-kendryte/wiki)
